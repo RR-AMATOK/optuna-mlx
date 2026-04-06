@@ -186,6 +186,15 @@ class GPSampler(BaseSampler):
         constraints_func: Callable[[FrozenTrial], Sequence[float]] | None = None,
         warn_independent_sampling: bool = True,
     ) -> None:
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "GPSampler requires PyTorch. "
+                "Install it with: pip install torch\n"
+                "Or install all optional dependencies: pip install optuna[optional]"
+            ) from None
+
         self._rng = LazyRandomState(seed)
         self._independent_sampler = independent_sampler or optuna.samplers.RandomSampler(seed=seed)
         self._intersection_search_space = optuna.search_space.IntersectionSearchSpace()
