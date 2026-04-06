@@ -133,9 +133,15 @@ Each decision follows: ID | Date | Decision | Rationale | Status | Alternatives 
   (b) float32 with iterative refinement for Cholesky
   (c) CPU fallback for precision-critical operations
   "Precision is like Sheldon's spot - non-negotiable."
-- **Status:** ACCEPTED — implementation approach will be refined by float64
-  benchmark results (Phase 0, Work Item 0A). If float64 is >5x slower than
-  float32, a follow-up ADR will document the mixed-precision strategy.
+- **Status:** ACCEPTED — REFINED after Work Item 0A benchmark (2026-04-05).
+  **Benchmark result: float64 is NOT supported on GPU in MLX 0.31.1. Cholesky
+  is CPU-only even for float32.** Revised strategy:
+  - GPU float32 for kernel matrix element-wise ops (squared distances, Matern52)
+  - CPU float64 for Cholesky, solve_triangular, log-det (precision-critical)
+  - Use `stream=mx.cpu` for linalg ops, default GPU stream for array math
+  - Compute kernel on GPU in float32, cast to float64 before Cholesky
+  - MLX CPU float64 Cholesky matches numpy/torch speed (~0.04ms for 100x100)
+  - GPU float32 matmul is fast (0.54ms for 500x500 vs 0.65ms CPU float64)
 - **Alternatives:** float32 everywhere (rejected - numerical instability risk)
 
 ## ADR-010: Handle Missing MLX Special Functions
