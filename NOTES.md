@@ -282,7 +282,7 @@ population sizes (50-200). Worth revisiting only if users need very large popula
 - Special: erf, erfinv, logsumexp
 - Random: uniform, normal, key-based PRNG
 - Automatic differentiation: grad, value_and_grad (functional API)
-- Data types: float16, float32, bfloat16, float64 (check availability)
+- Data types: float16, float32, bfloat16, float64 (CONFIRMED on MLX 0.31.1)
 
 **NOT available in MLX (need workarounds):**
 - `np.unique` with return_inverse - need numpy fallback
@@ -355,3 +355,26 @@ else:
 - Identified critical risk areas: float64, in-place ops, autograd pattern, missing APIs
 - Documented torch -> MLX and numpy -> MLX translation maps
 - "I've read more code today than Raj has spoken words to women." - Howard
+
+### 2026-04-05 - PO/QA Review & Pre-Phase Fix-Now Items
+- Reviewed 6 new documents from PO and QA:
+  - QA_REPORT.md: 3 critical, 4 high, 7 medium, 5 low, 6 info findings
+  - PO_ROADMAP_REVIEW.md: 7 gaps and 3 risks identified in plan
+  - PO_REPRIORITIZATION.md: Within-phase reordering (risk-first for GP, impact-first for TPE)
+  - PO_QA_RESPONSE.md: PO triage of all 25 QA findings with dispositions
+  - DEV_BRIEF.md: Precise dev instructions for Phase 0 remaining + Phase 1
+  - QA_ACCEPTANCE_CRITERIA.md: Testable criteria for all 6 phases
+- Executed Pre-Phase "Fix Now" items:
+  - C-1: Installed MLX 0.31.1 + PyTorch 2.11.0, verified all APIs present
+  - H-1: Fixed all LOC counts (-1 each) across NOTES, TODO, README_MLX, CHANGELOG, PO_REPRI
+  - M-4: Fixed README architecture diagram (marked planned files as PLANNED)
+  - M-5: Added early import check to GPSampler.__init__ with clear error message
+  - L-4: Clarified ADR-009 status wording (removed ambiguous parenthetical)
+  - L-5: Confirmed TODO legend already cleaned by PO
+  - C-2: Committed all docs + GPSampler fix to dev branch (2 commits)
+- MLX environment verified: GPU device, float64 support, all key APIs confirmed
+- PO added Phase 0.5 autograd risk gate (blocking Phase 1)
+- PO added ADR-011 (backend fallback) and ADR-012 (autograd pattern) as OPEN decisions
+- Phases 3-5 marked CONDITIONAL by PO based on QA perf findings
+- "The PO reviewed our plan and found 7 gaps. That's fewer gaps than in
+  Howard's knowledge of hygiene." - Sheldon

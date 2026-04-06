@@ -11,12 +11,12 @@
 # ============================================================================
 
 ## Pre-Phase: QA Fix-Now Items (from QA_REPORT.md, triaged in PO_QA_RESPONSE.md)
-- [ ] Install MLX + PyTorch in dev environment (C-1)
-- [ ] Commit all documentation files to dev branch (C-2, L-2)
-- [ ] Fix all LOC counts in docs (-1 each, see H-1 for exact values)
-- [ ] Fix README_MLX.md architecture diagram — mark planned files clearly (M-4)
-- [ ] Add early import check to GPSampler.__init__ with clear error message (M-5)
-- [ ] Clarify ADR-009 status wording (L-4)
+- [x] Install MLX 0.31.1 + PyTorch 2.11.0 in dev environment (C-1)
+- [x] Commit all documentation files to dev branch (C-2, L-2)
+- [x] Fix all LOC counts in docs (-1 each, see H-1 for exact values)
+- [x] Fix README_MLX.md architecture diagram — mark planned files clearly (M-4)
+- [x] Add early import check to GPSampler.__init__ with clear error message (M-5)
+- [x] Clarify ADR-009 status wording (L-4)
 
 ## Phase 0: Project Setup (The Pilot Episode)
 - [x] Analyze Optuna codebase and identify acceleration targets
