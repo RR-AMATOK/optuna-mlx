@@ -190,9 +190,8 @@ class GPSampler(BaseSampler):
             import mlx.core  # noqa: F401
         except ImportError:
             raise ImportError(
-                "GPSampler requires MLX. "
-                "Install it with: pip install mlx\n"
-                "Or install all optional dependencies: pip install optuna[optional]"
+                "GPSampler requires MLX (Apple Silicon only). "
+                "Install with: pip install mlx"
             ) from None
 
         self._rng = LazyRandomState(seed)

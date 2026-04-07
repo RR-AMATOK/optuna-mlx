@@ -27,6 +27,7 @@ _SQRT_HALF = math.sqrt(0.5)
 _INV_SQRT_2PI = 1 / math.sqrt(2 * math.pi)
 _SQRT_HALF_PI = math.sqrt(0.5 * math.pi)
 _LOG_SQRT_2PI = math.log(math.sqrt(2 * math.pi))
+_LOG_2 = math.log(2.0)
 _EPS = 1e-12  # NOTE(nabenabe): grad becomes nan when EPS=0.
 _INV_SQRT_PI = 1.0 / math.sqrt(math.pi)
 
@@ -53,17 +54,25 @@ def _erfcx(x: mx.array) -> mx.array:
 
     Uses asymptotic expansion for large x, direct computation for moderate x.
     """
-    # For large positive x (> 4), use asymptotic expansion
-    large_mask = x > 4.0
+    # For large positive x (> 3), use asymptotic expansion (rel_err < 1e-4 at x=3)
+    large_mask = x > 3.0
     # For moderate x, direct computation is stable
     direct = mx.exp(mx.square(x)) * (1.0 - mx.erf(x))
-    asymp = _erfcx_asymptotic(mx.maximum(x, 4.1))  # Avoid division by zero
+    asymp = _erfcx_asymptotic(mx.maximum(x, 3.1))  # Avoid division by zero
     return mx.where(large_mask, asymp, direct)
 
 
 def _log_ndtr(x: mx.array) -> mx.array:
-    """Log of the normal CDF: log(Phi(x)) = log(0.5 * erfc(-x / sqrt(2)))."""
-    return mx.log(0.5 * (1.0 + mx.erf(x * _SQRT_HALF)))
+    """Log of the normal CDF: log(Phi(x)) = log(0.5 * erfc(-x / sqrt(2))).
+
+    For large negative x, uses erfcx-based computation to avoid log(0).
+    """
+    safe = x > -5.0
+    standard = mx.log(0.5 * (1.0 + mx.erf(x * _SQRT_HALF)))
+    # Tail: log(Phi(x)) = log(erfc(-x/sqrt2)/2) = -log(2) - x^2/2 + log(erfcx(-x/sqrt2))
+    neg_x_sqrt_half = -x * _SQRT_HALF
+    tail = -_LOG_2 - 0.5 * mx.square(x) + mx.log(_erfcx(mx.maximum(neg_x_sqrt_half, 0.0)))
+    return mx.where(safe, standard, tail)
 
 
 def _sample_from_normal_sobol(dim: int, n_samples: int, seed: int | None) -> mx.array:

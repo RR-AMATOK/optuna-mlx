@@ -168,18 +168,23 @@ Each decision follows: ID | Date | Decision | Rationale | Status | Alternatives 
 
 ## ADR-011: Backend Fallback Strategy (MLX -> torch -> error)
 - **Date:** 2026-04-05
-- **Decision:** PENDING - needs team decision before Phase 1 completion
+- **Updated:** 2026-04-06
+- **Decision:** ACCEPTED — Option B (hard fork, MLX-only)
 - **Context:** The plan replaces all torch code in `_gp/` with MLX. But Optuna
   currently works on Linux/Windows with torch. If we remove torch entirely,
   non-macOS users lose GP sampler access.
-- **Option A (Recommended by PO):** Backend abstraction layer. Try MLX first,
+- **Option A:** Backend abstraction layer. Try MLX first,
   fall back to torch, raise ImportError if neither available. This preserves
   backward compatibility. Cost: moderate complexity (two code paths to maintain).
-- **Option B:** Hard fork. MLX-only `_gp/`. Non-macOS users use upstream Optuna.
+- **Option B (CHOSEN):** Hard fork. MLX-only `_gp/`. Non-macOS users use upstream Optuna.
   Cost: simple code, but limits adoption.
 - **Option C:** Dual-file strategy. Keep original torch files as `_gp_torch/`,
   add new MLX files as `_gp_mlx/`, select at import time. Cost: code duplication.
-- **Status:** OPEN - awaiting team input
+- **Rationale:** This is a fork targeting Apple Silicon. Maintaining dual backends
+  doubles the code surface for marginal benefit — non-macOS users already have
+  upstream Optuna with full torch support. GPSampler.__init__ raises a clear
+  ImportError with "(Apple Silicon only)" when MLX is unavailable. Can revisit
+  if there's demand for dual-backend (e.g., MPS via torch on macOS).
 - **Added by:** PO, see PO_ROADMAP_REVIEW.md GAP-5
 - "As Sheldon would say, 'It's not a choice, it's a series of escalating
   commitments.' But unlike his Roommate Agreement, we can actually change this."
