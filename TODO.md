@@ -90,16 +90,21 @@
 - [x] MF-2: ADR-011 decided — Option B (hard fork, MLX-only) in DECISIONS.md
 - [x] SF-1: `_log_ndtr` tail-safe branch (erfcx-based, accurate to 1e-5 at x=-5)
 
+### QA Bug Fixes — DONE
+- [x] B-1: `fit_kernel_params` catches `np.linalg.LinAlgError` (study crash fix)
+- [x] B-2: `standard_logei` stable branch extended to z < -4.5, NaN gradient fix
+- [x] B-3: `_erfcx` threshold tuned to x > 3.5 with branch clamping
+
 ### Remaining for QA (see PO_PHASE1_REVIEW.md Q-1 through Q-10)
-- [ ] Q-1: Run all 61 GP tests independently
-- [ ] Q-2: `study.optimize()` with GPSampler, 50 trials
-- [ ] Q-3: Verify GPSampler works without torch installed
-- [ ] Q-4: `erfcx` accuracy at transition region (x in [3,6])
-- [ ] Q-5: `_log_ndtr` accuracy for x = -30, -20, -10
-- [ ] Q-6: Greenlet + MLX interaction
-- [ ] Q-7: Memory stability over 200 trials
-- [ ] Q-8: MLX benchmark vs torch baseline
-- [ ] Q-9: Numerical parity: kernel, posterior, MLL
+- [x] Q-1: 270/270 parametrized GP tests pass
+- [ ] Q-2: `study.optimize()` with GPSampler, 50 trials (B-1 fix unblocks this)
+- [ ] Q-3: Verify GPSampler works without torch installed (needs clean venv)
+- [x] Q-4: `erfcx` accuracy at transition — fixed (B-3), rel_err < 1e-5 at boundary
+- [x] Q-5: `_log_ndtr` accuracy — tail 1e-10, x=-5 now 5.5e-7
+- [x] Q-6: Greenlet + MLX interaction — PASS
+- [ ] Q-7: Memory stability over 200 trials (B-5 open, needs profiling)
+- [ ] Q-8: MLX benchmark vs torch baseline (S-1: 3.21x slower, strategic)
+- [x] Q-9: Numerical parity: kernel, posterior, MLL — PASS
 - [ ] Q-10: Gradient parity: MLL grad, acqf grad
 
 ## Phase 2: TPE Sampler - "The Parzen Estimator Paradigm"
