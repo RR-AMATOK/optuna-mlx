@@ -10,16 +10,16 @@ from optuna.logging import get_logger
 
 
 if TYPE_CHECKING:
+    import mlx.core as mx
     import scipy.optimize as so
-    import torch
 
     from optuna._gp import batched_lbfgsb
     from optuna._gp.acqf import BaseAcquisitionFunc
 else:
     from optuna import _LazyImport
 
+    mx = _LazyImport("mlx.core")
     so = _LazyImport("scipy.optimize")
-    torch = _LazyImport("torch")
     batched_lbfgsb = _LazyImport("optuna._gp.batched_lbfgsb")
 
 
@@ -61,11 +61,17 @@ def _gradient_ascent_batched(
         assert scaled_x.ndim == 2 and next_params.ndim == 2
         next_params[:, continuous_indices] = scaled_x * lengthscales
         # NOTE(Kaichi-Irie): If fvals.numel() > 1, backward() cannot be computed, so we sum up.
-        x_tensor = torch.from_numpy(next_params).requires_grad_(True)
-        neg_fvals = -acqf.eval_acqf(x_tensor)
-        neg_fvals.sum().backward()  # type: ignore[no-untyped-call]
-        grads = x_tensor.grad.detach().numpy()  # type: ignore[union-attr]
-        neg_fvals_ = np.atleast_1d(neg_fvals.detach().numpy())
+        with mx.stream(mx.cpu):
+            def neg_acqf_sum(x_mx: mx.array) -> mx.array:
+                return mx.sum(-acqf.eval_acqf(x_mx))
+
+            x_mx = mx.array(next_params, dtype=mx.float64)
+            sum_val, grads_mx = mx.value_and_grad(neg_acqf_sum)(x_mx)
+            # Also compute individual neg_fvals for the return
+            neg_fvals_mx = -acqf.eval_acqf(x_mx)
+            mx.eval(sum_val, grads_mx, neg_fvals_mx)
+            grads = np.array(grads_mx)
+            neg_fvals_ = np.atleast_1d(np.array(neg_fvals_mx))
         # Flip sign because scipy minimizes functions.
         # Let the scaled acqf be g(x) and the acqf be f(sx), then dg/dx = df/dx * s.
         return neg_fvals_, grads[:, continuous_indices] * lengthscales

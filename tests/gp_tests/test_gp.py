@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import mlx.core as mx
 import numpy as np
 import pytest
-import torch
 
 from optuna._gp.gp import GPRegressor
 from optuna._gp.gp import warn_and_convert_inf
@@ -73,25 +73,23 @@ def test_warn_and_convert_inf_for_1d_array(values: np.ndarray, ans: np.ndarray) 
     ],
 )
 @pytest.mark.parametrize("deterministic_objective", [True, False])
-@pytest.mark.parametrize("torch_set_grad_enabled", [True, False])
 def test_fit_kernel_params(
     X: np.ndarray,
     Y: np.ndarray,
     is_categorical: np.ndarray,
     deterministic_objective: bool,
-    torch_set_grad_enabled: bool,
 ) -> None:
-    with torch.set_grad_enabled(torch_set_grad_enabled):
+    with mx.stream(mx.cpu):
         log_prior = prior.default_log_prior
         minimum_noise = prior.DEFAULT_MINIMUM_NOISE_VAR
         gtol: float = 1e-2
         gpr = GPRegressor(
-            X_train=torch.from_numpy(X),
-            y_train=torch.from_numpy(Y),
-            is_categorical=torch.from_numpy(is_categorical),
-            inverse_squared_lengthscales=torch.ones(X.shape[1], dtype=torch.float64),
-            kernel_scale=torch.tensor(1.0, dtype=torch.float64),
-            noise_var=torch.tensor(1.0, dtype=torch.float64),
+            X_train=mx.array(X, dtype=mx.float64),
+            y_train=mx.array(Y, dtype=mx.float64),
+            is_categorical=mx.array(is_categorical),
+            inverse_squared_lengthscales=mx.ones((X.shape[1],), dtype=mx.float64),
+            kernel_scale=mx.array(1.0, dtype=mx.float64),
+            noise_var=mx.array(1.0, dtype=mx.float64),
         )._fit_kernel_params(
             log_prior=log_prior,
             minimum_noise=minimum_noise,
@@ -99,7 +97,7 @@ def test_fit_kernel_params(
             gtol=gtol,
         )
 
-        assert (
+        assert int(
             (gpr.inverse_squared_lengthscales != 1.0).sum()
             + (gpr.kernel_scale != 1.0).sum()
             + (gpr.noise_var != 1.0).sum()
@@ -110,86 +108,100 @@ def test_fit_kernel_params(
     "x_shape", [(1, 3), (2, 3), (1, 2, 3), (2, 1, 3), (2, 2, 3), (2, 2, 2, 3)]
 )
 def test_posterior(x_shape: tuple[int, ...]) -> None:
-    rng = np.random.RandomState(0)
-    X = rng.random(size=(10, x_shape[-1]))
-    Y = rng.randn(10)
-    Y = (Y - Y.mean()) / Y.std()
-    log_prior = prior.default_log_prior
-    minimum_noise = prior.DEFAULT_MINIMUM_NOISE_VAR
-    gtol: float = 1e-2
-    gpr = GPRegressor(
-        X_train=torch.from_numpy(X),
-        y_train=torch.from_numpy(Y),
-        is_categorical=torch.from_numpy(np.zeros(X.shape[-1], dtype=bool)),
-        inverse_squared_lengthscales=torch.ones(X.shape[1], dtype=torch.float64),
-        kernel_scale=torch.tensor(1.0, dtype=torch.float64),
-        noise_var=torch.tensor(1.0, dtype=torch.float64),
-    )._fit_kernel_params(
-        log_prior=log_prior,
-        minimum_noise=minimum_noise,
-        deterministic_objective=False,
-        gtol=gtol,
-    )
-    x = rng.random(size=x_shape)
-    mean_joint, covar = gpr.posterior(torch.from_numpy(x), joint=True)
-    mean, var_ = gpr.posterior(torch.from_numpy(x), joint=False)
-    assert mean_joint.shape == mean.shape and torch.allclose(mean, mean_joint)
-    assert covar.shape == (*x_shape[:-1], x_shape[-2])
-    assert covar.diagonal(dim1=-2, dim2=-1).shape == var_.shape and torch.allclose(
-        covar.diagonal(dim1=-2, dim2=-1), var_
-    ), "Diagonal Check."
-    assert torch.allclose(covar, covar.transpose(-2, -1)), "Symmetric Check."
-    assert torch.all(torch.det(covar) >= 0.0), "Postive Semi-definite Check."
+    with mx.stream(mx.cpu):
+        rng = np.random.RandomState(0)
+        X = rng.random(size=(10, x_shape[-1]))
+        Y = rng.randn(10)
+        Y = (Y - Y.mean()) / Y.std()
+        log_prior = prior.default_log_prior
+        minimum_noise = prior.DEFAULT_MINIMUM_NOISE_VAR
+        gtol: float = 1e-2
+        gpr = GPRegressor(
+            X_train=mx.array(X, dtype=mx.float64),
+            y_train=mx.array(Y, dtype=mx.float64),
+            is_categorical=mx.array(np.zeros(X.shape[-1], dtype=bool)),
+            inverse_squared_lengthscales=mx.ones((X.shape[1],), dtype=mx.float64),
+            kernel_scale=mx.array(1.0, dtype=mx.float64),
+            noise_var=mx.array(1.0, dtype=mx.float64),
+        )._fit_kernel_params(
+            log_prior=log_prior,
+            minimum_noise=minimum_noise,
+            deterministic_objective=False,
+            gtol=gtol,
+        )
+        x = rng.random(size=x_shape)
+        mean_joint, covar = gpr.posterior(mx.array(x, dtype=mx.float64), joint=True)
+        mean, var_ = gpr.posterior(mx.array(x, dtype=mx.float64), joint=False)
+
+        mean_np = np.array(mean)
+        mean_joint_np = np.array(mean_joint)
+        covar_np = np.array(covar)
+        var_np = np.array(var_)
+
+        assert mean_joint_np.shape == mean_np.shape
+        np.testing.assert_allclose(mean_np, mean_joint_np, rtol=1e-5)
+        assert covar_np.shape == (*x_shape[:-1], x_shape[-2])
+        diag = np.diagonal(covar_np, axis1=-2, axis2=-1)
+        np.testing.assert_allclose(diag, var_np, rtol=1e-5, err_msg="Diagonal Check.")
+        np.testing.assert_allclose(
+            covar_np, np.swapaxes(covar_np, -2, -1), rtol=1e-5, err_msg="Symmetric Check."
+        )
+        assert np.all(np.linalg.det(covar_np) >= 0.0), "Positive Semi-definite Check."
 
 
 @pytest.mark.parametrize("n_running", [1, 5])
 def test_append_running_data(n_running: int) -> None:
-    dim = 3
-    rng = np.random.RandomState(0)
-    X = torch.from_numpy(rng.random(size=(10, dim)))
-    Y = torch.from_numpy(rng.randn(10))
-    Y = (Y - Y.mean()) / Y.std()
-    log_prior = prior.default_log_prior
-    minimum_noise = prior.DEFAULT_MINIMUM_NOISE_VAR
-    gtol: float = 1e-2
-    gpr = GPRegressor(
-        X_train=X,
-        y_train=Y,
-        is_categorical=torch.from_numpy(np.zeros(X.shape[-1], dtype=bool)),
-        inverse_squared_lengthscales=torch.ones(X.shape[1], dtype=torch.float64),
-        kernel_scale=torch.tensor(1.0, dtype=torch.float64),
-        noise_var=torch.tensor(1.0, dtype=torch.float64),
-    )._fit_kernel_params(
-        log_prior=log_prior,
-        minimum_noise=minimum_noise,
-        deterministic_objective=False,
-        gtol=gtol,
-    )
+    with mx.stream(mx.cpu):
+        dim = 3
+        rng = np.random.RandomState(0)
+        X = mx.array(rng.random(size=(10, dim)), dtype=mx.float64)
+        Y = mx.array(rng.randn(10), dtype=mx.float64)
+        Y = (Y - mx.mean(Y)) / mx.std(Y)
+        log_prior = prior.default_log_prior
+        minimum_noise = prior.DEFAULT_MINIMUM_NOISE_VAR
+        gtol: float = 1e-2
+        gpr = GPRegressor(
+            X_train=X,
+            y_train=Y,
+            is_categorical=mx.array(np.zeros(X.shape[-1], dtype=bool)),
+            inverse_squared_lengthscales=mx.ones((X.shape[1],), dtype=mx.float64),
+            kernel_scale=mx.array(1.0, dtype=mx.float64),
+            noise_var=mx.array(1.0, dtype=mx.float64),
+        )._fit_kernel_params(
+            log_prior=log_prior,
+            minimum_noise=minimum_noise,
+            deterministic_objective=False,
+            gtol=gtol,
+        )
 
-    X_running = torch.from_numpy(rng.random(size=(n_running, dim)))
-    y_running = torch.from_numpy(rng.randn(n_running))
+        X_running = mx.array(rng.random(size=(n_running, dim)), dtype=mx.float64)
+        y_running = mx.array(rng.randn(n_running), dtype=mx.float64)
 
-    reference_gpr = GPRegressor(
-        X_train=torch.cat([X, X_running], dim=0),
-        y_train=torch.cat([Y, y_running], dim=0),
-        is_categorical=torch.from_numpy(np.zeros(X.shape[-1] + n_running, dtype=bool)),
-        inverse_squared_lengthscales=gpr.inverse_squared_lengthscales.clone(),
-        kernel_scale=gpr.kernel_scale.clone(),
-        noise_var=gpr.noise_var.clone(),
-    )
-    reference_gpr._cache_matrix()
+        reference_gpr = GPRegressor(
+            X_train=mx.concatenate([X, X_running], axis=0),
+            y_train=mx.concatenate([Y, y_running], axis=0),
+            is_categorical=mx.array(np.zeros(X.shape[-1] + n_running, dtype=bool)),
+            inverse_squared_lengthscales=mx.array(gpr.inverse_squared_lengthscales),
+            kernel_scale=mx.array(gpr.kernel_scale),
+            noise_var=mx.array(gpr.noise_var),
+        )
+        reference_gpr._cache_matrix()
 
-    gpr.append_running_data(X_running, y_running)
+        gpr.append_running_data(X_running, y_running)
 
-    assert reference_gpr._cov_Y_Y_chol is not None
-    assert gpr._cov_Y_Y_chol is not None
-    assert reference_gpr._cov_Y_Y_inv_Y is not None
-    assert gpr._cov_Y_Y_inv_Y is not None
-    assert torch.allclose(reference_gpr._cov_Y_Y_chol, gpr._cov_Y_Y_chol)
-    assert torch.allclose(reference_gpr._cov_Y_Y_inv_Y, gpr._cov_Y_Y_inv_Y)
+        assert reference_gpr._cov_Y_Y_chol is not None
+        assert gpr._cov_Y_Y_chol is not None
+        assert reference_gpr._cov_Y_Y_inv_Y is not None
+        assert gpr._cov_Y_Y_inv_Y is not None
+        np.testing.assert_allclose(
+            np.array(reference_gpr._cov_Y_Y_chol), np.array(gpr._cov_Y_Y_chol), rtol=1e-5
+        )
+        np.testing.assert_allclose(
+            np.array(reference_gpr._cov_Y_Y_inv_Y), np.array(gpr._cov_Y_Y_inv_Y), rtol=1e-5
+        )
 
-    x = torch.from_numpy(rng.random(size=(1, dim)))
-    mean, var = gpr.posterior(x)
-    reference_mean, reference_var = reference_gpr.posterior(x)
-    assert torch.allclose(mean, reference_mean)
-    assert torch.allclose(var, reference_var)
+        x = mx.array(rng.random(size=(1, dim)), dtype=mx.float64)
+        mean, var = gpr.posterior(x)
+        reference_mean, reference_var = reference_gpr.posterior(x)
+        np.testing.assert_allclose(np.array(mean), np.array(reference_mean), rtol=1e-5)
+        np.testing.assert_allclose(np.array(var), np.array(reference_var), rtol=1e-5)
