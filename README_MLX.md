@@ -146,6 +146,7 @@ python -c "import mlx.core as mx; print(mx.default_device())"
 | `PO_REPRIORITIZATION.md` | PO priority adjustments based on code reality |
 | `QA_REPORT.md` | QA findings: 3C, 4H, 7M, 5L, 6I issues found |
 | `PO_QA_RESPONSE.md` | PO triage: dispositions for all 25 QA findings |
+| `PO_PHASE1_REVIEW.md` | PO review of Phase 1 GP migration (conditional pass) |
 
 ## Requirements
 
