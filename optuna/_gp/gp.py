@@ -485,7 +485,7 @@ def fit_kernel_params(
                     deterministic_objective=deterministic_objective,
                     gtol=gtol,
                 )
-            except RuntimeError as e:
+            except (RuntimeError, np.linalg.LinAlgError) as e:
                 error = e
 
         logger.warning(

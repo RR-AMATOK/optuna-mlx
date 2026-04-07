@@ -32,6 +32,28 @@
 - MF-2: ADR-011 resolved — Option B (hard fork, MLX-only). Non-macOS users use upstream.
 - SF-1: `_log_ndtr` tail accuracy fixed (was returning -inf for x < -6, now 1e-5 to 1e-8)
 
+### QA Bug Fixes (2026-04-06)
+- B-1: `fit_kernel_params` now catches `np.linalg.LinAlgError` (was only `RuntimeError`).
+  Prevents study crash from non-positive-definite kernel matrices.
+- B-2: `standard_logei` erfcx-stable branch extended from z < -25 to z < -4.5.
+  Both branches clamped to prevent NaN gradient propagation through `mx.where`.
+- B-3: `_erfcx` asymptotic threshold set to x > 3.5 (rel_err < 1e-5 at boundary).
+  Direct branch clamped to x <= 3.5 to prevent NaN from `exp(x^2) * (1-erf(x))`
+  when MLX erf float32 precision makes `1-erf(x)` collapse to zero.
+
+### QA Phase 1 Verification (2026-04-06) — CONDITIONAL FAIL
+- Q-1 PASS: 270/270 parametrized GP tests pass
+- Q-9 PASS: Numerical parity confirmed (kernel, posterior, MLL)
+- Q-6 PASS: Greenlet + MLX interaction works correctly
+- B-1 CRITICAL: LinAlgError escapes exception handler -> study crash at ~38-70 trials
+- B-2 CRITICAL: LogEI gradient catastrophic cancellation for z in (-25, -5)
+- B-3 CRITICAL: erfcx 2.66% error at transition x=3.01 (threshold too low)
+- B-4 HIGH: _log_ndtr 3.97% error for positive x (cancellation in 1+erf)
+- B-5 HIGH: Memory growth 6.6 MB/trial (464 MB in 70 trials)
+- S-1 STRATEGIC: MLX 3.21x slower than torch E2E (GPU not used due to float64)
+- PO decision: Fix B-1/B-2/B-3 (3 one-line changes), re-verify, then sign off
+- ADR-013 needed: GP performance regression accepted, project viability rests on Phase 2
+
 ### Phase 0 Complete (2026-04-05)
 - MLX 0.31.1 installed, float64 NOT GPU-accelerated (ADR-009 refined)
 - `optuna/_mlx/__init__.py` created with backend detection

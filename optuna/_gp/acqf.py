@@ -54,11 +54,14 @@ def _erfcx(x: mx.array) -> mx.array:
 
     Uses asymptotic expansion for large x, direct computation for moderate x.
     """
-    # For large positive x (> 3), use asymptotic expansion (rel_err < 1e-4 at x=3)
-    large_mask = x > 3.0
-    # For moderate x, direct computation is stable
-    direct = mx.exp(mx.square(x)) * (1.0 - mx.erf(x))
-    asymp = _erfcx_asymptotic(mx.maximum(x, 3.1))  # Avoid division by zero
+    # For large positive x (> 3.5), use asymptotic expansion (rel_err < 1e-5 at x=3.5)
+    # Direct computation degrades at x >= 3.5 due to MLX erf having float32-level precision.
+    large_mask = x > 3.5
+    # Clamp inputs to each branch to prevent NaN in the unused branch
+    # (mx.where gradient propagates through both branches; NaN * 0 = NaN)
+    x_direct = mx.minimum(x, 3.5)
+    direct = mx.exp(mx.square(x_direct)) * (1.0 - mx.erf(x_direct))
+    asymp = _erfcx_asymptotic(mx.maximum(x, 0.1))
     return mx.where(large_mask, asymp, direct)
 
 
@@ -68,10 +71,14 @@ def _log_ndtr(x: mx.array) -> mx.array:
     For large negative x, uses erfcx-based computation to avoid log(0).
     """
     safe = x > -5.0
-    standard = mx.log(0.5 * (1.0 + mx.erf(x * _SQRT_HALF)))
+    # Clamp inputs to each branch to prevent NaN in the unused branch
+    # (mx.where gradient propagates through both; NaN * 0 = NaN)
+    x_std = mx.maximum(x, -5.0)
+    standard = mx.log(0.5 * (1.0 + mx.erf(x_std * _SQRT_HALF)))
     # Tail: log(Phi(x)) = log(erfc(-x/sqrt2)/2) = -log(2) - x^2/2 + log(erfcx(-x/sqrt2))
-    neg_x_sqrt_half = -x * _SQRT_HALF
-    tail = -_LOG_2 - 0.5 * mx.square(x) + mx.log(_erfcx(mx.maximum(neg_x_sqrt_half, 0.0)))
+    x_tail = mx.minimum(x, -5.0)
+    neg_x_sqrt_half = -x_tail * _SQRT_HALF
+    tail = -_LOG_2 - 0.5 * mx.square(x_tail) + mx.log(_erfcx(neg_x_sqrt_half))
     return mx.where(safe, standard, tail)
 
 
@@ -110,18 +117,20 @@ def standard_logei(z: mx.array) -> mx.array:
 
     NOTE: We do not use the third condition because [-10**100, 10**100] is an overly high range.
     """
-    # First condition (most z falls into this condition, so we calculate it first)
-    # NOTE: ei(z) = z * cdf(z) + pdf(z)
-    z_half = 0.5 * z
-    erfc_val = 1.0 + mx.erf(_SQRT_HALF * z)  # erfc(-sqrt(0.5)*z) = 1 + erf(sqrt(0.5)*z)
+    # Second condition check (z < -4.5): stable branch for numerical stability
+    small = z < -4.5
+    # First condition: clamp z to safe range so log never sees negative arg
+    # (prevents NaN propagation through mx.where gradient for extreme z)
+    z_safe = mx.maximum(z, -4.5)
+    z_half = 0.5 * z_safe
+    erfc_val = 1.0 + mx.erf(_SQRT_HALF * z_safe)
     out = mx.log(
         z_half * erfc_val  # z * cdf(z)
-        + mx.exp(-z_half * z) * _INV_SQRT_2PI  # pdf(z)
+        + mx.exp(-z_half * z_safe) * _INV_SQRT_2PI  # pdf(z)
     )
-    # Second condition (z < -25): numerically stable branch using erfcx
-    small = z < -25.0
+    # Second condition (z < -4.5): numerically stable branch using erfcx
     if mx.any(small):
-        z_small = mx.where(small, z, -26.0)  # Safe value for non-small elements
+        z_small = mx.where(small, z, -5.0)  # Safe value for non-small elements
         erfcx_val = _erfcx(-_SQRT_HALF * z_small)
         stable_branch = (
             -0.5 * mx.square(z_small)
