@@ -1,3 +1,15 @@
+# Claude Code
+.claude/
+
+# Optuna-MLX project docs (not part of upstream Optuna)
+CHANGELOG_MLX.md
+DECISIONS.md
+DEV_BRIEF.md
+NOTES.md
+TODO.md
+PO_*.md
+QA_*.md
+
 # macOS metadata
 .DS_Store
 
