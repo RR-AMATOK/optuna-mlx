@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from collections.abc import Sequence
 
-    import torch
+    import mlx.core as mx
 
     import optuna._gp.acqf as acqf_module
     import optuna._gp.gp as gp
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 else:
     from optuna._imports import _LazyImport
 
-    torch = _LazyImport("torch")
+    mx = _LazyImport("mlx.core")
     gp_search_space = _LazyImport("optuna._gp.search_space")
     gp = _LazyImport("optuna._gp.gp")
     optim_mixed = _LazyImport("optuna._gp.optim_mixed")
@@ -138,8 +138,8 @@ class GPSampler(BaseSampler):
     typically yields a high value between one grid and its adjacent grid.
 
     .. note::
-        This sampler requires ``scipy`` and ``torch``.
-        You can install these dependencies with ``pip install scipy torch``.
+        This sampler requires ``scipy`` and ``mlx``.
+        You can install these dependencies with ``pip install scipy mlx``.
 
     Args:
         seed:
@@ -187,11 +187,11 @@ class GPSampler(BaseSampler):
         warn_independent_sampling: bool = True,
     ) -> None:
         try:
-            import torch  # noqa: F401
+            import mlx.core  # noqa: F401
         except ImportError:
             raise ImportError(
-                "GPSampler requires PyTorch. "
-                "Install it with: pip install torch\n"
+                "GPSampler requires MLX. "
+                "Install it with: pip install mlx\n"
                 "Or install all optional dependencies: pip install optuna[optional]"
             ) from None
 
@@ -199,7 +199,7 @@ class GPSampler(BaseSampler):
         self._independent_sampler = independent_sampler or optuna.samplers.RandomSampler(seed=seed)
         self._intersection_search_space = optuna.search_space.IntersectionSearchSpace()
         self._n_startup_trials = n_startup_trials
-        self._log_prior: Callable[[gp.GPRegressor], torch.Tensor] = prior.default_log_prior
+        self._log_prior: Callable[[gp.GPRegressor], mx.array] = prior.default_log_prior
         self._minimum_noise: float = prior.DEFAULT_MINIMUM_NOISE_VAR
         # We cache the kernel parameters for initial values of fitting the next time.
         # TODO(nabenabe): Make the cache lists system_attrs to make GPSampler stateless.
@@ -332,9 +332,8 @@ class GPSampler(BaseSampler):
         if len(completed_trials) < self._n_startup_trials:
             return {}
 
-        # Force CPU device for all torch operations to avoid issues when
-        # torch.set_default_device("cuda") is set globally (issue #6113).
-        with torch.device("cpu"):
+        # Use CPU stream for all MLX float64 operations.
+        with mx.stream(mx.cpu):
             params = self._sample_relative_impl(
                 study, completed_trials, running_trials, search_space
             )
@@ -415,7 +414,7 @@ class GPSampler(BaseSampler):
                 acqf = acqf_module.LogEHVI(
                     gpr_list=gprs_list,
                     search_space=internal_search_space,
-                    Y_train=torch.from_numpy(standardized_score_vals),
+                    Y_train=mx.array(standardized_score_vals, dtype=mx.float64),
                     n_qmc_samples=128,  # NOTE(nabenabe): The BoTorch default value.
                     qmc_seed=self._rng.rng.randint(1 << 30),
                     normalized_params_of_running_trials=normalized_params_of_running_trials,
@@ -464,7 +463,7 @@ class GPSampler(BaseSampler):
                     gpr_list=gprs_list,
                     search_space=internal_search_space,
                     Y_feasible=(
-                        torch.from_numpy(standardized_score_vals[is_feasible])
+                        mx.array(standardized_score_vals[is_feasible], dtype=mx.float64)
                         if not is_all_infeasible
                         else None
                     ),

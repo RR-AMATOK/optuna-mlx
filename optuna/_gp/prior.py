@@ -4,24 +4,24 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    import torch
+    import mlx.core as mx
 
     from optuna._gp import gp
 else:
     from optuna._imports import _LazyImport
 
-    torch = _LazyImport("torch")
+    mx = _LazyImport("mlx.core")
 
 
 DEFAULT_MINIMUM_NOISE_VAR = 1e-6
 
 
-def default_log_prior(gpr: gp.GPRegressor) -> torch.Tensor:
+def default_log_prior(gpr: gp.GPRegressor) -> mx.array:
     # Log of prior distribution of kernel parameters.
 
-    def gamma_log_prior(x: torch.Tensor, concentration: float, rate: float) -> torch.Tensor:
+    def gamma_log_prior(x: mx.array, concentration: float, rate: float) -> mx.array:
         # We omit the constant factor `rate ** concentration / Gamma(concentration)`.
-        return (concentration - 1) * torch.log(x) - rate * x
+        return (concentration - 1) * mx.log(x) - rate * x
 
     # NOTE(contramundum53): The priors below (params and function
     # shape for inverse_squared_lengthscales) were picked by heuristics.
