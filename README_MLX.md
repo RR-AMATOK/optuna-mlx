@@ -147,6 +147,8 @@ python -c "import mlx.core as mx; print(mx.default_device())"
 | `QA_REPORT.md` | QA findings: 3C, 4H, 7M, 5L, 6I issues found |
 | `PO_QA_RESPONSE.md` | PO triage: dispositions for all 25 QA findings |
 | `PO_PHASE1_REVIEW.md` | PO review of Phase 1 GP migration (conditional pass) |
+| `QA_PHASE1_VERIFICATION.md` | QA Phase 1 results: 3 critical bugs, 3.21x perf regression |
+| `PO_PHASE1_QA_RESPONSE.md` | PO triage: fix 3 bugs, accept perf regression, re-verify |
 
 ## Requirements
 

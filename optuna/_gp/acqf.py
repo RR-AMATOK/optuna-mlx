@@ -32,54 +32,116 @@ _EPS = 1e-12  # NOTE(nabenabe): grad becomes nan when EPS=0.
 _INV_SQRT_PI = 1.0 / math.sqrt(math.pi)
 
 
-def _erfcx_asymptotic(x: mx.array) -> mx.array:
-    """erfcx(x) = exp(x^2) * erfc(x) via asymptotic expansion for large positive x.
+# Chebyshev coefficients for erfcx on [0.5, 4.0] (degree 18).
+# Computed via numpy.polynomial.chebyshev.chebfit against scipy.special.erfcx.
+# Maps x in [0.5, 4.0] to t in [-1, 1] via t = (2x - 4.5) / 3.5.
+# Max relative error < 5.1e-11 over 10000 test points.
+_ERFCX_CHEB_A = 0.5   # interval lower bound
+_ERFCX_CHEB_B = 4.0   # interval upper bound
+_ERFCX_CHEB_COEFFS: list[float] = [
+    2.96818454790701458e-01,
+    -2.14399108867746158e-01,
+    7.20834456646796684e-02,
+    -2.28220766240603140e-02,
+    6.86044865791134943e-03,
+    -1.97019093271966249e-03,
+    5.43139025222576081e-04,
+    -1.44289623125817926e-04,
+    3.70556401626724141e-05,
+    -9.22394840465391848e-06,
+    2.23047580759814003e-06,
+    -5.24969428871224749e-07,
+    1.20463805694201489e-07,
+    -2.69893952431968551e-08,
+    5.91201085610661827e-09,
+    -1.26673539223150318e-09,
+    2.66134441633216699e-10,
+    -5.37354001310196129e-11,
+    1.08766465314391399e-11,
+]
 
-    Uses the series: erfcx(x) = 1/(x*sqrt(pi)) * sum (-1)^n * (2n)! / (n! * (2x)^{2n}).
-    Convergent for x > ~4.  "Like Sheldon's series, it converges — eventually." - Raj
+
+def _erfcx_chebyshev(x: mx.array) -> mx.array:
+    """erfcx(x) via degree-18 Chebyshev polynomial for x in [0.5, 4.0].
+
+    Uses Clenshaw recurrence for numerically stable evaluation.
+    Coefficients are pre-converted to mx.float64 because Python float literals
+    are silently truncated to float32 precision in MLX arithmetic.
     """
-    inv_2x2 = 1.0 / (2.0 * mx.square(x))
-    # Horner-form of first 8 terms: 1 - t + 3t^2 - 15t^3 + 105t^4 - ...
-    # where t = 1/(2x^2)
+    # Map [0.5, 4.0] -> [-1, 1]
+    t = (2.0 * x - (_ERFCX_CHEB_A + _ERFCX_CHEB_B)) / (_ERFCX_CHEB_B - _ERFCX_CHEB_A)
+    # Pre-convert coefficients to mx.float64 to prevent float32 truncation
+    c = [mx.array(v, dtype=mx.float64) for v in _ERFCX_CHEB_COEFFS]
+    two = mx.array(2.0, dtype=mx.float64)
+    # Clenshaw recurrence: evaluate sum of c_k * T_k(t) from k=N down to k=0
+    n = len(c)
+    b_k1 = mx.zeros_like(x)  # b_{k+1}
+    b_k2 = mx.zeros_like(x)  # b_{k+2}
+    for k in range(n - 1, 0, -1):
+        b_new = c[k] + two * t * b_k1 - b_k2
+        b_k2 = b_k1
+        b_k1 = b_new
+    return c[0] + t * b_k1 - b_k2
+
+
+def _erfcx_asymptotic(x: mx.array) -> mx.array:
+    """erfcx(x) via asymptotic expansion for x > 4.
+
+    Uses the series: erfcx(x) = 1/(x*sqrt(pi)) * sum (-1)^n * (2n-1)!! / (2x^2)^n.
+    """
+    inv_2x2 = mx.array(1.0, dtype=x.dtype) / (mx.array(2.0, dtype=x.dtype) * mx.square(x))
     result = mx.array(1.0, dtype=x.dtype)
     coeff = 1.0
     for n in range(1, 8):
         coeff *= -(2 * n - 1)
-        result = result + coeff * inv_2x2**n
-    return _INV_SQRT_PI / x * result
+        result = result + mx.array(coeff, dtype=x.dtype) * inv_2x2**n
+    return mx.array(_INV_SQRT_PI, dtype=x.dtype) / x * result
 
 
 def _erfcx(x: mx.array) -> mx.array:
     """Scaled complementary error function: erfcx(x) = exp(x^2) * erfc(x).
 
-    Uses asymptotic expansion for large x, direct computation for moderate x.
+    Three regions for accuracy across the full positive real line:
+    - x < 0.5: direct exp(x^2)*(1-erf(x)), safe because erfc ~ 1 (no cancellation)
+    - 0.5 <= x <= 4.0: Chebyshev polynomial approximation (rel_err < 5.1e-11)
+    - x > 4.0: asymptotic expansion (converges well for large x)
+
+    Uses mx.where for input routing instead of mx.clip/mx.minimum/mx.maximum,
+    because clamping functions have gradient 0 at their boundary (e.g.,
+    mx.minimum(x, 4.0) at x=4.0 returns gradient 0), creating dead zones.
+    mx.where(mask, x, safe_val) has gradient 1 for the selected branch.
     """
-    # For large positive x (> 3.5), use asymptotic expansion (rel_err < 1e-5 at x=3.5)
-    # Direct computation degrades at x >= 3.5 due to MLX erf having float32-level precision.
-    large_mask = x > 3.5
-    # Clamp inputs to each branch to prevent NaN in the unused branch
-    # (mx.where gradient propagates through both branches; NaN * 0 = NaN)
-    x_direct = mx.minimum(x, 3.5)
-    direct = mx.exp(mx.square(x_direct)) * (1.0 - mx.erf(x_direct))
-    asymp = _erfcx_asymptotic(mx.maximum(x, 0.1))
-    return mx.where(large_mask, asymp, direct)
+    small = x < 0.5
+    large = x > 4.0
+    mid = ~small & ~large
+    # Route inputs: active branch gets real x, inactive branches get safe constants
+    x_small = mx.where(small, x, mx.array(0.25, dtype=x.dtype))
+    direct = mx.exp(mx.square(x_small)) * (mx.array(1.0, dtype=x.dtype) - mx.erf(x_small))
+    x_mid = mx.where(mid, x, mx.array(2.0, dtype=x.dtype))
+    cheb = _erfcx_chebyshev(x_mid)
+    x_large = mx.where(large, x, mx.array(5.0, dtype=x.dtype))
+    asymp = _erfcx_asymptotic(x_large)
+    return mx.where(small, direct, mx.where(large, asymp, cheb))
 
 
 def _log_ndtr(x: mx.array) -> mx.array:
     """Log of the normal CDF: log(Phi(x)) = log(0.5 * erfc(-x / sqrt(2))).
 
-    For large negative x, uses erfcx-based computation to avoid log(0).
+    Two branches for numerical stability:
+    - x > 0: log1p(erf(x/sqrt(2))) - log(2), avoids cancellation when erf -> 1
+    - x <= 0: -log(2) - x^2/2 + log(erfcx(-x/sqrt(2))), avoids log(0) and
+      cancellation in 1-erf. Safe because erfcx(y) > 0 for all y >= 0.
     """
-    safe = x > -5.0
-    # Clamp inputs to each branch to prevent NaN in the unused branch
-    # (mx.where gradient propagates through both; NaN * 0 = NaN)
-    x_std = mx.maximum(x, -5.0)
-    standard = mx.log(0.5 * (1.0 + mx.erf(x_std * _SQRT_HALF)))
-    # Tail: log(Phi(x)) = log(erfc(-x/sqrt2)/2) = -log(2) - x^2/2 + log(erfcx(-x/sqrt2))
-    x_tail = mx.minimum(x, -5.0)
-    neg_x_sqrt_half = -x_tail * _SQRT_HALF
-    tail = -_LOG_2 - 0.5 * mx.square(x_tail) + mx.log(_erfcx(neg_x_sqrt_half))
-    return mx.where(safe, standard, tail)
+    positive = x > 0.0
+    sqrt_half = mx.array(_SQRT_HALF, dtype=x.dtype)
+    log_2 = mx.array(_LOG_2, dtype=x.dtype)
+    # Route inputs via mx.where (not mx.maximum/mx.minimum) to avoid gradient-0 at boundary
+    x_pos = mx.where(positive, x, mx.array(1.0, dtype=x.dtype))
+    pos_branch = mx.log1p(mx.erf(x_pos * sqrt_half)) - log_2
+    x_neg = mx.where(~positive, x, mx.array(-1.0, dtype=x.dtype))
+    neg_x_sqrt_half = -x_neg * sqrt_half
+    neg_branch = -log_2 - mx.array(0.5, dtype=x.dtype) * mx.square(x_neg) + mx.log(_erfcx(neg_x_sqrt_half))
+    return mx.where(positive, pos_branch, neg_branch)
 
 
 def _sample_from_normal_sobol(dim: int, n_samples: int, seed: int | None) -> mx.array:
@@ -117,28 +179,28 @@ def standard_logei(z: mx.array) -> mx.array:
 
     NOTE: We do not use the third condition because [-10**100, 10**100] is an overly high range.
     """
-    # Second condition check (z < -4.5): stable branch for numerical stability
-    small = z < -4.5
-    # First condition: clamp z to safe range so log never sees negative arg
-    # (prevents NaN propagation through mx.where gradient for extreme z)
-    z_safe = mx.maximum(z, -4.5)
-    z_half = 0.5 * z_safe
-    erfc_val = 1.0 + mx.erf(_SQRT_HALF * z_safe)
-    out = mx.log(
+    # For z <= -4.0, the standard branch loses precision (cancellation in z*cdf(z)+pdf(z)).
+    # Use erfcx-based stable branch instead. Always compute both branches.
+    # Use mx.where for input routing (not mx.minimum/mx.maximum) to avoid gradient
+    # dead zones at the boundary — mx.minimum(z, -4.0) at z=-4.0 has gradient 0.
+    small = z <= -4.0
+    # Standard branch: route safe value for z <= -4.0 elements to prevent log(negative)
+    z_safe = mx.where(~small, z, mx.array(-3.0, dtype=z.dtype))
+    z_half = mx.array(0.5, dtype=z.dtype) * z_safe
+    erfc_val = mx.array(1.0, dtype=z.dtype) + mx.erf(mx.array(_SQRT_HALF, dtype=z.dtype) * z_safe)
+    standard_branch = mx.log(
         z_half * erfc_val  # z * cdf(z)
-        + mx.exp(-z_half * z_safe) * _INV_SQRT_2PI  # pdf(z)
+        + mx.exp(-z_half * z_safe) * mx.array(_INV_SQRT_2PI, dtype=z.dtype)  # pdf(z)
     )
-    # Second condition (z < -4.5): numerically stable branch using erfcx
-    if mx.any(small):
-        z_small = mx.where(small, z, -5.0)  # Safe value for non-small elements
-        erfcx_val = _erfcx(-_SQRT_HALF * z_small)
-        stable_branch = (
-            -0.5 * mx.square(z_small)
-            - _LOG_SQRT_2PI
-            + mx.log(1.0 + _SQRT_HALF_PI * z_small * erfcx_val)
-        )
-        out = mx.where(small, stable_branch, out)
-    return out
+    # Stable branch: route safe value for z > -4.0 elements to keep erfcx input positive
+    z_small = mx.where(small, z, mx.array(-5.0, dtype=z.dtype))
+    erfcx_val = _erfcx(-mx.array(_SQRT_HALF, dtype=z.dtype) * z_small)
+    stable_branch = (
+        mx.array(-0.5, dtype=z.dtype) * mx.square(z_small)
+        - mx.array(_LOG_SQRT_2PI, dtype=z.dtype)
+        + mx.log(mx.array(1.0, dtype=z.dtype) + mx.array(_SQRT_HALF_PI, dtype=z.dtype) * z_small * erfcx_val)
+    )
+    return mx.where(small, stable_branch, standard_branch)
 
 
 def logei(mean: mx.array, var: mx.array, f0: float) -> mx.array:
